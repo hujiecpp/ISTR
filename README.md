@@ -2,7 +2,7 @@ This is the project page of the paper:
 
 ISTR: End-to-End Instance Segmentation via Transformers.
 
-**Highlights:**
+:star:**Highlights:**
 - **GPU Friendly**: Four 1080Ti/2080Ti GPUs can handle the training for R50, R101 backbones with ISTR.
 - **High Performance**: On COCO test-dev, ISTR-R50-3x gets 46.8/38.6 box/mask AP, and ISTR-R101-3x gets 48.1/39.9 box/mask AP.
 
