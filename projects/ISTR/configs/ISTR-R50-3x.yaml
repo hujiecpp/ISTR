@@ -1,6 +1,7 @@
 _BASE_: "Base-ISTR.yaml"
 MODEL:
   WEIGHTS: "detectron2://ImageNetPretrained/torchvision/R-50.pkl"
+  # WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
   RESNETS:
     DEPTH: 50
     STRIDE_IN_1X1: False

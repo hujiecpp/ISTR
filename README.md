@@ -1,6 +1,8 @@
-This is the project page of the paper:
+This is the project page for the paper:
 
-ISTR: End-to-End Instance Segmentation via Transformers.
+>[**ISTR: End-to-End Instance Segmentation via Transformers**](https://arxiv.org/abs/2105.00637),           
+> Jie Hu, Liujuan Cao, Lu Yao, ShengChuan Zhang, Yan Wang, Ke Li, Feiyue Huang, Rongrong Ji, Ling Shao 
+> *arXiv 2105.00637*  
 
 :star:**Highlights:**
 - **GPU Friendly**: Four 1080Ti/2080Ti GPUs can handle the training for R50, R101 backbones with ISTR.
@@ -65,5 +67,10 @@ python demo/demo.py --config-file projects/ISTR/configs/ISTR-R50-3x.yaml --input
 If our paper helps your research, please cite it in your publications:
 
 ```BibTeX
-paper is coming soon.
+@article{hu2021ISTR,
+  title={ISTR: End-to-End Instance Segmentation via Transformers},
+  author={Hu, Jie and Cao, Liujuan and Yao, Lu and Zhang, ShengChuan and Li, Ke and Huang, Feiyue and Ji, Rongrong and Shao, Ling},
+  journal={arXiv preprint arXiv:2105.00637},
+  year={2021}
+}
 ```
