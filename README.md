@@ -1,7 +1,7 @@
 This is the project page for the paper:
 
->[**ISTR: End-to-End Instance Segmentation via Transformers**](https://arxiv.org/abs/2105.00637),           
-> Jie Hu, Liujuan Cao, Lu Yao, ShengChuan Zhang, Yan Wang, Ke Li, Feiyue Huang, Rongrong Ji, Ling Shao 
+>[**ISTR: End-to-End Instance Segmentation via Transformers**](https://arxiv.org/abs/2105.00637),  
+> Jie Hu, Liujuan Cao, Lu Yao, ShengChuan Zhang, Yan Wang, Ke Li, Feiyue Huang, Rongrong Ji, Ling Shao  
 > *arXiv 2105.00637*  
 
 :star:**Highlights:**
