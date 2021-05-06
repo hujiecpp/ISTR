@@ -1,7 +1,7 @@
 This is the project page for the paper:
 
 >[**ISTR: End-to-End Instance Segmentation via Transformers**](https://arxiv.org/abs/2105.00637),  
-> Jie Hu, Liujuan Cao, Lu Yao, ShengChuan Zhang, Yan Wang, Ke Li, Feiyue Huang, Rongrong Ji, Ling Shao  
+> Jie Hu, Liujuan Cao, Yao Lu, ShengChuan Zhang, Yan Wang, Ke Li, Feiyue Huang, Ling Shao, Rongrong Ji,  
 > *arXiv 2105.00637*  
 
 :star:**Highlights:**
@@ -69,7 +69,7 @@ If our paper helps your research, please cite it in your publications:
 ```BibTeX
 @article{hu2021ISTR,
   title={ISTR: End-to-End Instance Segmentation via Transformers},
-  author={Hu, Jie and Cao, Liujuan and Yao, Lu and Zhang, ShengChuan and Li, Ke and Huang, Feiyue and Ji, Rongrong and Shao, Ling},
+  author={Hu, Jie and Cao, Liujuan and Lu, Yao and Zhang, ShengChuan and Li, Ke and Huang, Feiyue and Shao, Ling and Ji, Rongrong},
   journal={arXiv preprint arXiv:2105.00637},
   year={2021}
 }
