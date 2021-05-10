@@ -49,4 +49,4 @@ def add_ISTR_config(cfg):
     cfg.MODEL.ISTR.IOU_LABELS = [0, 1]
 
     # Encoder
-    cfg.MODEL.ISTR.PATH_COMPONENTS = "./projects/ISTR/LME/coco_2017_train_class_agnosticTrue_whitenTrue_sigmoidTrue_60.npz"
+    cfg.MODEL.ISTR.PATH_COMPONENTS = "./projects/ISTR/LME/coco_2017_train_class_agnosticTrue_whitenTrue_sigmoidTrue_60_siz28.npz"
