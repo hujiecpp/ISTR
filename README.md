@@ -22,6 +22,8 @@ ISTR-SMT | R101-FPN | 8.9   | 48.8   | 42.9    | todo
 ISTR-SMT | Swin-L   | 3.5   | 55.8   | 49.2    | todo
 ISTR-SMT@1088 | Swin-L | 2.9 | 56.4 | 49.7 | todo
 
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/istr-end-to-end-instance-segmentation-with/instance-segmentation-on-coco)](https://paperswithcode.com/sota/instance-segmentation-on-coco?p=istr-end-to-end-instance-segmentation-with)
+
 
 - The inference time is evaluated with a single 2080Ti GPU.
 - We use the models pre-trained on ImageNet using torchvision. The ImageNet pre-trained [ResNet-101](https://drive.google.com/drive/u/1/folders/19UaSgR4OwqA-BhCs_wG7i6E-OXC5NR__) backbone is obtained from [SparseR-CNN](https://github.com/PeizeSun/SparseR-CNN/blob/main/tools/convert-torchvision-to-d2.py).
