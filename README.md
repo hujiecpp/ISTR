@@ -1,27 +1,33 @@
 This is the project page for the paper:
 
->[**ISTR: End-to-End Instance Segmentation via Transformers**](https://arxiv.org/abs/2105.00637),  
-> Jie Hu, Liujuan Cao, Yao Lu, ShengChuan Zhang, Yan Wang, Ke Li, Feiyue Huang, Ling Shao, Rongrong Ji,  
-> *arXiv 2105.00637*  
+>[**ISTR: End-to-End Instance Segmentation via Transformers**](https://arxiv.org/abs/2105.00637).
 
-:star:**Highlights:**
+<!-- :star:**Highlights:**
 - **GPU Friendly**: Four 1080Ti/2080Ti GPUs can handle the training for R50, R101 backbones with ISTR.
-- **High Performance**: On COCO test-dev, ISTR-R50-3x gets 46.8/38.6 box/mask AP, and ISTR-R101-3x gets 48.1/39.9 box/mask AP.
+- **High Performance**: On COCO test-dev, ISTR-R50-3x gets 46.8/38.6 box/mask AP, and ISTR-R101-3x gets 48.1/39.9 box/mask AP. -->
 
 ## Updates
+- (2022.03.09) New codes for ISTR-PCA, ISTR-DCT, and ISTR-SMT with better performance and speed have been released.
 - (2021.05.03) The project page for ISTR is avaliable.
 
 ## Models
-Method | inf. time | box AP | mask AP | download
---- |:---:|:---:|:---:|:---:
-[ISTR-R50-3x](https://github.com/hujiecpp/ISTR/blob/main/projects/ISTR/configs/ISTR-R50-3x.yaml) | 17.8 FPS | 46.8  | 38.6 | [model](https://drive.google.com/drive/folders/1LEq1I3RlH5Ufz8agNv9iDgxP85k2Fh2X?usp=sharing) \| [log](https://drive.google.com/drive/folders/1LEq1I3RlH5Ufz8agNv9iDgxP85k2Fh2X?usp=sharing)
-[ISTR-R101-3x](https://github.com/hujiecpp/ISTR/blob/main/projects/ISTR/configs/ISTR-R101-3x.yaml) | 13.9 FPS | 48.1  | 39.9 | [model](https://drive.google.com/drive/folders/1LEq1I3RlH5Ufz8agNv9iDgxP85k2Fh2X?usp=sharing) \| [log](https://drive.google.com/drive/folders/1LEq1I3RlH5Ufz8agNv9iDgxP85k2Fh2X?usp=sharing)
+Method   | backbone | speed | box AP | mask AP | link
+---      |   :---:  |  :---:|:---:   |:---:    |:---:
+ISTR-PCA | R50-FPN  | 13.0  | 46.7   | 39.8    | todo
+ISTR-DCT | R50-FPN  | 12.5  | 46.9   | 40.2    | todo
+ISTR-SMT | R50-FPN  | 10.4  | 47.4   | 41.7    | todo
+ISTR-PCA | R101-FPN | 10.7  | 48.0   | 41.1    | todo
+ISTR-DCT | R101-FPN | 10.3  | 48.3   | 41.6    | todo
+ISTR-SMT | R101-FPN | 8.9   | 48.8   | 42.9    | todo
+ISTR-SMT | Swin-L   | 3.5   | 55.8   | 49.2    | todo
+ISTR-SMT@1088 | Swin-L | 2.9 | 56.4 | 49.7 | todo
+
 
 - The inference time is evaluated with a single 2080Ti GPU.
 - We use the models pre-trained on ImageNet using torchvision. The ImageNet pre-trained [ResNet-101](https://drive.google.com/drive/u/1/folders/19UaSgR4OwqA-BhCs_wG7i6E-OXC5NR__) backbone is obtained from [SparseR-CNN](https://github.com/PeizeSun/SparseR-CNN/blob/main/tools/convert-torchvision-to-d2.py).
 
 ## Installation
-The codes are built on top of [Detectron2](https://github.com/facebookresearch/detectron2), [SparseR-CNN](https://github.com/PeizeSun/SparseR-CNN), and [AdelaiDet](https://github.com/aim-uofa/AdelaiDet).
+The codes are built on top of [Detectron2](https://github.com/facebookresearch/detectron2), [SparseR-CNN](https://github.com/PeizeSun/SparseR-CNN), [], and [AdelaiDet](https://github.com/aim-uofa/AdelaiDet).
 
 #### Requirements
 - Python=3.8
@@ -34,6 +40,7 @@ The codes are built on top of [Detectron2](https://github.com/facebookresearch/d
 conda create -n ISTR python=3.8 -y
 conda activate ISTR
 conda install pytorch==1.6.0 torchvision==0.7.0 cudatoolkit=10.1 -c pytorch
+or (conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch)
 pip install opencv-python
 pip install scipy
 pip install shapely
@@ -67,9 +74,9 @@ python demo/demo.py --config-file projects/ISTR/configs/ISTR-R50-3x.yaml --input
 If our paper helps your research, please cite it in your publications:
 
 ```BibTeX
-@article{hu2021ISTR,
-  title={ISTR: End-to-End Instance Segmentation via Transformers},
-  author={Hu, Jie and Cao, Liujuan and Lu, Yao and Zhang, ShengChuan and Li, Ke and Huang, Feiyue and Shao, Ling and Ji, Rongrong},
+@article{hu2021istr,
+  title={Istr: End-to-end instance segmentation with transformers},
+  author={Hu, Jie and Cao, Liujuan and Lu, Yao and Zhang, ShengChuan and Wang, Yan and Li, Ke and Huang, Feiyue and Shao, Ling and Ji, Rongrong},
   journal={arXiv preprint arXiv:2105.00637},
   year={2021}
 }

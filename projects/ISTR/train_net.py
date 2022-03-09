@@ -1,14 +1,3 @@
-#
-# Modified by Peize Sun, Rufeng Zhang
-# Contact: {sunpeize, cxrfzhang}@foxmail.com
-#
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
-"""
-SparseRCNN Training Script.
-
-This script is a simplified version of the training script in detectron2/tools.
-"""
-
 import os
 import itertools
 import time
@@ -21,16 +10,13 @@ from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.config import get_cfg
 from detectron2.data import MetadataCatalog, build_detection_train_loader
 from detectron2.engine import AutogradProfiler, DefaultTrainer, default_argument_parser, default_setup, launch
-from detectron2.evaluation import COCOEvaluator, verify_results
+from detectron2.evaluation import COCOEvaluator, CityscapesInstanceEvaluator, verify_results#, LVISEvaluator
 from detectron2.solver.build import maybe_add_gradient_clipping
 
 from istr import ISTRDatasetMapper, add_ISTR_config
 
 
 class Trainer(DefaultTrainer):
-#     """
-#     Extension of the Trainer class adapted to SparseRCNN.
-#     """
 
     @classmethod
     def build_evaluator(cls, cfg, dataset_name, output_folder=None):
@@ -43,6 +29,12 @@ class Trainer(DefaultTrainer):
         if output_folder is None:
             output_folder = os.path.join(cfg.OUTPUT_DIR, "inference")
         return COCOEvaluator(dataset_name, cfg, True, output_folder)
+
+        # if dataset_name == 'coco_2017_val' or dataset_name == 'coco_2017_test-dev':
+        #     return COCOEvaluator(dataset_name, cfg, True, output_folder)
+        # elif dataset_name == 'cityscapes_fine_instance_seg_val' or dataset_name == 'cityscapes_fine_instance_seg_test':
+        #     return CityscapesInstanceEvaluator(dataset_name)
+
 
     @classmethod
     def build_train_loader(cls, cfg):

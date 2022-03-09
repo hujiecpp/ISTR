@@ -69,6 +69,7 @@ class DatasetMapper:
             assert use_instance_mask, "recompute_boxes requires instance masks"
         # fmt: off
         self.is_train               = is_train
+        # augmentations = [T.ResizeShortestEdge(short_edge_length=(1088,1088), max_size=1333, sample_style='choice')]
         self.augmentations          = T.AugmentationList(augmentations)
         self.image_format           = image_format
         self.use_instance_mask      = use_instance_mask

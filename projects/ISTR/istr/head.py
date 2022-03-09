@@ -1,17 +1,11 @@
 import copy
 import math
-from typing import Optional, List
 
 import torch
-from torch import nn, Tensor
-import torch.nn.functional as F
+from torch import nn
 
-from detectron2.modeling.poolers import ROIPooler, cat
-from detectron2.structures import Boxes, pairwise_iou
-
-from detectron2.layers import Conv2d, ConvTranspose2d, ShapeSpec, get_norm
-
-from detectron2.modeling.matcher import Matcher
+from detectron2.modeling.poolers import ROIPooler
+from detectron2.structures import Boxes
 
 _DEFAULT_SCALE_CLAMP = math.log(100000.0 / 16)
 
@@ -22,8 +16,8 @@ class DynamicHead(nn.Module):
         super().__init__()
 
         # Build RoI.
-        box_pooler = self._init_box_pooler(cfg, roi_input_shape)
-        self.box_pooler = box_pooler
+        self.box_pooler = self._init_box_pooler(cfg, roi_input_shape)
+        self.mask_pooler = self._init_mask_pooler(cfg, roi_input_shape)
         
         # Build heads.
         num_classes = cfg.MODEL.ISTR.NUM_CLASSES
@@ -31,17 +25,10 @@ class DynamicHead(nn.Module):
         dim_feedforward = cfg.MODEL.ISTR.DIM_FEEDFORWARD
         nhead = cfg.MODEL.ISTR.NHEADS
         dropout = cfg.MODEL.ISTR.DROPOUT
-        activation = cfg.MODEL.ISTR.ACTIVATION
         self.num_heads = cfg.MODEL.ISTR.NUM_HEADS
-        rcnn_head = RCNNHead(cfg, d_model, num_classes, dim_feedforward, nhead, dropout, activation)
+        rcnn_head = RCNNHead(cfg, d_model, num_classes, dim_feedforward, nhead, dropout)
         self.head_series = _get_clones(rcnn_head, self.num_heads)
         self.return_intermediate = cfg.MODEL.ISTR.DEEP_SUPERVISION
-
-        # self.proposal_matcher = Matcher(
-        #     cfg.MODEL.ISTR.IOU_THRESHOLDS,
-        #     cfg.MODEL.ISTR.IOU_LABELS,
-        #     allow_low_quality_matches=False,
-        # )
         
         # Init parameters.
         self.num_classes = num_classes
@@ -81,61 +68,105 @@ class DynamicHead(nn.Module):
             pooler_type=pooler_type,
         )
         return box_pooler
+    
+    @staticmethod
+    def _init_mask_pooler(cfg, input_shape):
 
-    def forward(self, features, init_bboxes, init_features, targets = None):
+        in_features = cfg.MODEL.ROI_HEADS.IN_FEATURES
+        pooler_resolution = 28 #cfg.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
+        pooler_scales = tuple(1.0 / input_shape[k].stride for k in in_features)
+        sampling_ratio = cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
+        pooler_type = cfg.MODEL.ROI_BOX_HEAD.POOLER_TYPE
 
-        inter_class_logits = []
-        inter_pred_bboxes = []
-        inter_pred_masks = []
+        # If StandardROIHeads is applied on multiple feature maps (as in FPN),
+        # then we share the same predictors and therefore the channel counts must be the same
+        in_channels = [input_shape[f].channels for f in in_features]
+        # Check all channel counts are equal
+        assert len(set(in_channels)) == 1, in_channels
 
-        bs = len(features[0])
+        mask_pooler = ROIPooler(
+            output_size=pooler_resolution,
+            scales=pooler_scales,
+            sampling_ratio=sampling_ratio,
+            pooler_type=pooler_type,
+        )
+        return mask_pooler
+
+    def forward(self, features, init_bboxes, init_features, targets = None, criterion = None, mask_E = None, mask_D = None):
+
         bboxes = init_bboxes
         
         proposal_features = init_features.clone()
+
+        losses = {}
+
+        inter_class_logits = []
+        inter_pred_bboxes = []
+        inter_mask_logits = []
+        inter_roi_feats = []
         
-        for i, rcnn_head in enumerate(self.head_series):
+        for stage, rcnn_head in enumerate(self.head_series):
+            
+            if criterion != None or stage == self.num_heads-1:
+                class_logits, pred_bboxes, proposal_features, mask_logits, ret_roi_features = rcnn_head(features, bboxes, proposal_features, self.box_pooler, self.mask_pooler)
 
-            # if i == self.num_heads - 1 and targets != None:
-            #     pred_box_with_gt = []
-            #     for pred_box, targets_per_image in zip(bboxes, targets):
-            #         gt_box = targets_per_image["boxes_xyxy"]
-            #         if len(gt_box) > 0:
-            #             match_quality_matrix = pairwise_iou(Boxes(gt_box), Boxes(pred_box))
-            #             matched_idxs, matched_labels = self.proposal_matcher(match_quality_matrix)
-            #             pred_box_with_gt.append(gt_box[matched_idxs])
-                        
-            #         else:
-            #             pred_box_with_gt.append(pred_box)
-
-            #     pred_box_with_gt = torch.stack(pred_box_with_gt)
-            #     class_logits_gt, pred_bboxes_gt, proposal_features_gt, mask_logits_gt = rcnn_head(features, pred_box_with_gt, proposal_features, self.box_pooler)
-            #     if self.return_intermediate:
-            #         inter_class_logits.append(class_logits_gt)
-            #         inter_pred_bboxes.append(pred_bboxes_gt)
-            #         inter_pred_masks.append(mask_logits_gt)
-
-
-            class_logits, pred_bboxes, proposal_features, mask_logits = rcnn_head(features, bboxes, proposal_features, self.box_pooler)
-
-            if self.return_intermediate:
                 inter_class_logits.append(class_logits)
                 inter_pred_bboxes.append(pred_bboxes)
-                inter_pred_masks.append(mask_logits)
+                inter_mask_logits.append(mask_logits)
+                inter_roi_feats.append(ret_roi_features)
+
+            else:
+                class_logits, pred_bboxes, proposal_features = rcnn_head(features, bboxes, proposal_features, self.box_pooler, None)
+                
+                if stage >= 2:
+                    inter_class_logits.append(class_logits)
+
+            if criterion != None:
+                output = {'pred_logits': class_logits, 'pred_boxes': pred_bboxes, 'pred_masks': mask_logits, 'pred_roi_feats': ret_roi_features}
+                tmp_loss = criterion(output, targets, mask_E, mask_D, stage)
+                losses.update(tmp_loss)
+
             bboxes = pred_bboxes.detach()
 
-        if self.return_intermediate:
-            return torch.stack(inter_class_logits), torch.stack(inter_pred_bboxes), torch.stack(inter_pred_masks)
+        if criterion != None:
+            return losses
 
-        return class_logits[None], pred_bboxes[None], mask_logits[None]
+        inter_class_logits = torch.mean(torch.stack(inter_class_logits), 0)
+        inter_pred_bboxes = torch.mean(torch.stack(inter_pred_bboxes), 0)
+        inter_mask_logits = torch.mean(torch.stack(inter_mask_logits), 0)
+        inter_roi_feats = torch.mean(torch.stack(inter_roi_feats), 0)
 
+        # return class_logits[None], pred_bboxes[None], mask_logits[None], ret_roi_features[None]
+        return inter_class_logits[None], inter_pred_bboxes[None], inter_mask_logits[None], inter_roi_feats[None]
+
+
+class conv_block(nn.Module):
+    """
+    Convolution Block 
+    """
+    def __init__(self, in_ch, out_ch):
+        super(conv_block, self).__init__()
+        
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm2d(out_ch),
+            nn.ELU(inplace=True),
+            nn.Conv2d(out_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm2d(out_ch),
+            nn.ELU(inplace=True)
+            )
+
+    def forward(self, x):
+        x = self.conv(x)
+        return x
 
 class RCNNHead(nn.Module):
 
-    def __init__(self, cfg, d_model, num_classes, dim_feedforward=2048, nhead=8, dropout=0.1, activation="relu",
-                 scale_clamp: float = _DEFAULT_SCALE_CLAMP, bbox_weights=(2.0, 2.0, 1.0, 1.0)):
+    def __init__(self, cfg, d_model, num_classes, dim_feedforward=2048, nhead=8, dropout=0.1, scale_clamp: float = _DEFAULT_SCALE_CLAMP, bbox_weights=(2.0, 2.0, 1.0, 1.0)):
         super().__init__()
 
         self.d_model = d_model
+        self.cfg = cfg
 
         # dynamic.
         self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
@@ -172,15 +203,18 @@ class RCNNHead(nn.Module):
             reg_module.append(nn.ELU(inplace=True))
         self.reg_module = nn.ModuleList(reg_module)
 
-        # mask.
-        num_mask = cfg.MODEL.ISTR.NUM_MASK
-        mask_module = list()
-        for _ in range(num_mask):
-            mask_module.append(nn.Linear(d_model, d_model, False))
-            mask_module.append(nn.LayerNorm(d_model))
-            mask_module.append(nn.ELU(inplace=True))
-        self.mask_module = nn.ModuleList(mask_module)
-        self.mask_logits = nn.Linear(d_model, cfg.MODEL.ISTR.MASK_DIM)
+        self.mask_module = nn.Sequential(
+            nn.Conv2d(d_model, d_model, 4, 2, 1),
+            nn.BatchNorm2d(d_model),
+            nn.ELU(True),
+            nn.Conv2d(d_model, d_model, 4, 2, 1),
+            nn.BatchNorm2d(d_model),
+            nn.ELU(True),
+            nn.Conv2d(d_model, d_model, 7, 1),)
+
+        if self.cfg.MODEL.ISTR.MASK_ENCODING_METHOD == 'AE':
+            self.ret_roi_layer_1 = conv_block(in_ch=d_model, out_ch=64)
+            self.ret_roi_layer_2 = conv_block(in_ch=64, out_ch=32)
 
         # pred.
         self.class_logits = nn.Linear(d_model, num_classes)
@@ -189,7 +223,7 @@ class RCNNHead(nn.Module):
         self.bbox_weights = bbox_weights
 
 
-    def forward(self, features, bboxes, pro_features, pooler):
+    def forward(self, features, bboxes, pro_features, pooler_box, pooler_mask):
         """
         :param bboxes: (N, nr_boxes, 4)
         :param pro_features: (N, nr_boxes, d_model)
@@ -201,15 +235,14 @@ class RCNNHead(nn.Module):
         proposal_boxes = list()
         for b in range(N):
             proposal_boxes.append(Boxes(bboxes[b]))
-        roi_features = pooler(features, proposal_boxes)            
+        roi_features = pooler_box(features, proposal_boxes)
+
         roi_features = roi_features.view(N * nr_boxes, self.d_model, -1).permute(2, 0, 1)        
 
         # self_att.
         pro_features = pro_features.view(N, nr_boxes, self.d_model).permute(1, 0, 2)
         pro_features2 = self.self_attn(pro_features, pro_features, value=pro_features)[0]
         pro_features = pro_features + self.dropout1(pro_features2)
-
-        del pro_features2
 
         pro_features = self.norm1(pro_features)
 
@@ -218,31 +251,17 @@ class RCNNHead(nn.Module):
         pro_features2 = self.inst_interact(pro_features, roi_features)
         pro_features = pro_features + self.dropout2(pro_features2)
 
-        del pro_features2
-
         obj_features = self.norm2(pro_features)
 
         # obj_feature.
         obj_features2 = self.linear2(self.dropout(self.activation(self.linear1(obj_features))))
         obj_features = obj_features + self.dropout3(obj_features2)
 
-        del obj_features2
-
         obj_features = self.norm3(obj_features)
         
         fc_feature = obj_features.transpose(0, 1).reshape(N * nr_boxes, -1)
         cls_feature = fc_feature.clone()
         reg_feature = fc_feature.clone()
-
-        mask_feature = fc_feature.clone()
-
-        del fc_feature
-
-        for mask_layer in self.mask_module:
-            mask_feature = mask_layer(mask_feature)
-        mask_logits = self.mask_logits(mask_feature)
-        
-        del mask_feature
 
         for cls_layer in self.cls_module:
             cls_feature = cls_layer(cls_feature)
@@ -251,12 +270,23 @@ class RCNNHead(nn.Module):
         class_logits = self.class_logits(cls_feature)
         bboxes_deltas = self.bboxes_delta(reg_feature)
 
-        del cls_feature
-        del reg_feature
+        pred_bboxes = self.apply_deltas(bboxes_deltas, bboxes.view(-1, 4)).view(N, nr_boxes, -1)
 
-        pred_bboxes = self.apply_deltas(bboxes_deltas, bboxes.view(-1, 4))
-        
-        return class_logits.view(N, nr_boxes, -1), pred_bboxes.view(N, nr_boxes, -1), obj_features, mask_logits.view(N, nr_boxes, -1)
+        if pooler_mask != None:
+            proposal_boxes = list()
+            for b in range(N):
+                proposal_boxes.append(Boxes(pred_bboxes[b]))
+            ret_roi_features = pooler_mask(features, proposal_boxes)
+
+            mask_logits = self.mask_module(ret_roi_features)
+
+            if self.cfg.MODEL.ISTR.MASK_ENCODING_METHOD == 'AE':
+                ret_roi_features = self.ret_roi_layer_1(ret_roi_features)
+                ret_roi_features = self.ret_roi_layer_2(ret_roi_features)
+            
+            return class_logits.view(N, nr_boxes, -1), pred_bboxes, obj_features, mask_logits.view(N, nr_boxes, -1), ret_roi_features.view(N, nr_boxes, -1)
+        else:
+            return class_logits.view(N, nr_boxes, -1), pred_bboxes, obj_features
     
 
     def apply_deltas(self, deltas, boxes):
@@ -332,23 +362,18 @@ class DynamicConv(nn.Module):
         param1 = parameters[:, :, :self.num_params].view(-1, self.hidden_dim, self.dim_dynamic)
         param2 = parameters[:, :, self.num_params:].view(-1, self.dim_dynamic, self.hidden_dim)
 
-        del parameters
 
         features = torch.bmm(features, param1)
-
-        del param1
 
         features = self.norm1(features)
         features = self.activation(features)
 
         features = torch.bmm(features, param2)
 
-        del param2
-
         features = self.norm2(features)
-        features = self.activation(features)
+        features_roi = self.activation(features)
 
-        features = features.flatten(1)
+        features = features_roi.flatten(1)
         features = self.out_layer(features)
         features = self.norm3(features)
         features = self.activation(features)

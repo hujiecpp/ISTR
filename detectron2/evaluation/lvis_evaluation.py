@@ -38,7 +38,7 @@ class LVISEvaluator(DatasetEvaluator):
                 Otherwise, will evaluate the results in the current process.
             output_dir (str): optional, an output directory to dump results.
         """
-        from lvis import LVIS
+        from boundary_iou_api.boundary_iou.lvis_instance_api.lvis import LVIS
 
         self._logger = logging.getLogger(__name__)
 
@@ -344,10 +344,11 @@ def _evaluate_predictions_on_lvis(lvis_gt, lvis_results, iou_type, class_names=N
         for c in lvis_results:
             c.pop("bbox", None)
 
-    from lvis import LVISEval, LVISResults
+    # from lvis import LVISEval, LVISResults
+    from boundary_iou.lvis_instance_api.eval import LVISEval, LVISResults
 
     lvis_results = LVISResults(lvis_gt, lvis_results)
-    lvis_eval = LVISEval(lvis_gt, lvis_results, iou_type)
+    lvis_eval = LVISEval(lvis_gt, lvis_results, iou_type="boundary")
     lvis_eval.run()
     lvis_eval.print_results()
 

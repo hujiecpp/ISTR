@@ -37,36 +37,63 @@ def build_transform_gen(cfg, is_train):
         logger.info("TransformGens used in training: " + str(tfm_gens))
     return tfm_gens
 
+
+def build_transform_gen_lsj(cfg, is_train):
+    """
+    Create a list of default :class:`Augmentation` from config.
+    Now it includes resizing and flipping.
+    Returns:
+        list[Augmentation]
+    """
+    assert is_train, "Only support training augmentation"
+    image_size = 1024   #cfg.INPUT.IMAGE_SIZE
+    min_scale = 0.1     #cfg.INPUT.MIN_SCALE
+    max_scale = 2.0     #cfg.INPUT.MAX_SCALE
+
+    augmentation = []
+
+    if cfg.INPUT.RANDOM_FLIP != "none":
+        augmentation.append(
+            T.RandomFlip(
+                horizontal=cfg.INPUT.RANDOM_FLIP == "horizontal",
+                vertical=cfg.INPUT.RANDOM_FLIP == "vertical",
+            )
+        )
+
+    augmentation.extend([
+        T.ResizeScale(
+            min_scale=min_scale, max_scale=max_scale, target_height=image_size, target_width=image_size
+        ),
+        T.FixedSizeCrop(crop_size=(image_size, image_size)),
+    ])
+
+    return augmentation
+
+
 @torch.no_grad()
 class ISTRDatasetMapper:
-    """
-    A callable which takes a dataset dict in Detectron2 Dataset format,
-    and map it into a format used by SparseRCNN.
-
-    The callable currently does the following:
-
-    1. Read the image from "file_name"
-    2. Applies geometric transforms to the image and annotation
-    3. Find and applies suitable cropping to the image and annotation
-    4. Prepare image and annotation to Tensors
-    """
 
     def __init__(self, cfg, is_train=True):
-        if cfg.INPUT.CROP.ENABLED and is_train:
-            self.crop_gen = [
-                T.ResizeShortestEdge([400, 500, 600], sample_style="choice"),
-                T.RandomCrop(cfg.INPUT.CROP.TYPE, cfg.INPUT.CROP.SIZE),
-            ]
-        else:
-            self.crop_gen = None
+        if cfg.LSJ_AUG == False:
+            if cfg.INPUT.CROP.ENABLED and is_train:
+                self.crop_gen = [
+                    T.ResizeShortestEdge([400, 500, 600], sample_style="choice"),
+                    T.RandomCrop(cfg.INPUT.CROP.TYPE, cfg.INPUT.CROP.SIZE),
+                ]
+            else:
+                self.crop_gen = None
 
-        self.tfm_gens = build_transform_gen(cfg, is_train)
-        logging.getLogger(__name__).info(
-            "Full TransformGens used in training: {}, crop: {}".format(str(self.tfm_gens), str(self.crop_gen))
-        )
+            self.tfm_gens = build_transform_gen(cfg, is_train)
+            logging.getLogger(__name__).info(
+                "Full TransformGens used in training: {}, crop: {}".format(str(self.tfm_gens), str(self.crop_gen))
+            )
+        else:
+            self.tfm_gens = build_transform_gen_lsj(cfg, is_train)
+            logging.getLogger(__name__).info("LSJ AUG")
 
         self.img_format = cfg.INPUT.FORMAT
         self.is_train = is_train
+        self.cfg = cfg
 
     def __call__(self, dataset_dict):
         """
@@ -80,15 +107,18 @@ class ISTRDatasetMapper:
         image = utils.read_image(dataset_dict["file_name"], format=self.img_format)
         utils.check_image_size(dataset_dict, image)
 
-        if self.crop_gen is None:
-            image, transforms = T.apply_transform_gens(self.tfm_gens, image)
-        else:
-            if np.random.rand() > 0.5:
+        if self.cfg.LSJ_AUG == False:
+            if self.crop_gen is None:
                 image, transforms = T.apply_transform_gens(self.tfm_gens, image)
             else:
-                image, transforms = T.apply_transform_gens(
-                    self.tfm_gens[:-1] + self.crop_gen + self.tfm_gens[-1:], image
-                )
+                if np.random.rand() > 0.5:
+                    image, transforms = T.apply_transform_gens(self.tfm_gens, image)
+                else:
+                    image, transforms = T.apply_transform_gens(
+                        self.tfm_gens[:-1] + self.crop_gen + self.tfm_gens[-1:], image
+                    )
+        else:
+            image, transforms = T.apply_transform_gens(self.tfm_gens, image)
 
         image_shape = image.shape[:2]  # h, w
 

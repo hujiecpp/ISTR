@@ -4,29 +4,29 @@ from torch import nn
 from fvcore.nn import sigmoid_focal_loss_jit
 
 from .util import box_ops
-from .util.misc import (NestedTensor, nested_tensor_from_tensor_list,
-                       accuracy, get_world_size, interpolate,
-                       is_dist_avail_and_initialized)
+from .util.misc import (get_world_size, is_dist_avail_and_initialized)
 from .util.box_ops import box_cxcywh_to_xyxy, generalized_box_iou
 
 from scipy.optimize import linear_sum_assignment
+import numpy as np
 
 
 class SetCriterion(nn.Module):
     def __init__(self, cfg, num_classes, matcher, weight_dict, eos_coef, losses):
         super().__init__()
-        self.cfg = cfg
         self.num_classes = num_classes
         self.matcher = matcher
         self.weight_dict = weight_dict
         self.eos_coef = eos_coef
         self.losses = losses
-        self.cfg = cfg
 
         self.focal_loss_alpha = cfg.MODEL.ISTR.ALPHA
         self.focal_loss_gamma = cfg.MODEL.ISTR.GAMMA
 
-    def loss_labels(self, outputs, targets, indices, num_boxes, mask_encoding):
+        self.mask_size = cfg.MODEL.ISTR.MASK_SIZE
+        self.mask_feat_dim = cfg.MODEL.ISTR.MASK_FEAT_DIM
+
+    def loss_labels(self, outputs, targets, indices, num_boxes):
         assert 'pred_logits' in outputs
         src_logits = outputs['pred_logits']
 
@@ -55,7 +55,7 @@ class SetCriterion(nn.Module):
         return losses
 
 
-    def loss_boxes(self, outputs, targets, indices, num_boxes, mask_encoding):
+    def loss_boxes(self, outputs, targets, indices, num_boxes):
         assert 'pred_boxes' in outputs
         idx = self._get_src_permutation_idx(indices)
         src_boxes = outputs['pred_boxes'][idx]
@@ -74,28 +74,59 @@ class SetCriterion(nn.Module):
 
         return losses
 
-    def loss_masks(self, outputs, targets, indices, num_boxes, mask_encoding):
+    def loss_masks(self, outputs, targets, indices, num_boxes, mask_E, mask_D):
         assert 'pred_masks' in outputs
         idx = self._get_src_permutation_idx(indices)
         src_masks_feat = outputs['pred_masks'][idx]
-        target_masks = torch.cat([t['gt_masks'][i] for t, (_, i) in zip(targets, indices)], dim=0)
+        src_boxes = outputs['pred_boxes'][idx]
 
-        mask_loss_func = nn.MSELoss(reduction="none")
-
-        target_masks_feat = mask_encoding.encoder(target_masks.flatten(1))
-        loss = mask_loss_func(src_masks_feat, target_masks_feat)
+        src_roi_feat = outputs['pred_roi_feats'][idx]
         
-        losses = {}
-        losses['loss_feat'] =  loss.sum() / num_boxes / self.cfg.MODEL.ISTR.MASK_DIM
+        target_masks = [t['gt_masks'][i] for t, (_, i) in zip(targets, indices)]
 
-        eps = 1e-5
-        src_masks = mask_encoding.decoder(src_masks_feat.flatten(1))
-        n_inst = src_masks.size(0)
-        target_masks = target_masks.flatten(1)
-        intersection = (src_masks * target_masks).sum(dim=1)
-        union = (src_masks ** 2.0).sum(dim=1) + (target_masks ** 2.0).sum(dim=1) + eps
-        loss = 1. - (2 * intersection / union)
-        losses['loss_dice'] = loss.sum() / num_boxes
+        tmp = []
+        cnt = 0
+        for i, t in enumerate(target_masks):
+            num = len(t)
+            proposals_np = src_boxes[cnt:cnt+num].detach()#.cpu().numpy()
+            maxw, maxh = targets[i]['image_size_xyxy'][0],targets[i]['image_size_xyxy'][1]
+
+            proposals_np[:, [0, 2]] = torch.clamp(proposals_np[:, [0, 2]], 0, maxw)
+            proposals_np[:, [1, 3]] = torch.clamp(proposals_np[:, [1, 3]], 0, maxh)
+
+            tmp.append(t.crop_and_resize(proposals_np, self.mask_size).float())
+
+            cnt = cnt + num
+        target_masks = torch.cat(tmp, dim=0)
+
+        if target_masks.size(0) != 0:
+            mask_loss_func = nn.SmoothL1Loss(reduction="none")
+
+            target_masks_feat = mask_E(target_masks.unsqueeze(1))
+
+            loss = mask_loss_func(src_masks_feat, target_masks_feat)
+            
+            losses = {}
+            losses['loss_feat'] = loss.sum() / num_boxes / self.mask_feat_dim
+
+            eps = 1e-5
+            src_masks = mask_D(src_masks_feat.flatten(1), src_roi_feat).flatten(1)
+            target_masks = target_masks.flatten(1)
+            intersection = (src_masks * target_masks).sum(dim=1)
+            union = (src_masks ** 2.0).sum(dim=1) + (target_masks ** 2.0).sum(dim=1) + eps
+            loss = 1. - (2 * intersection / union)
+            losses['loss_dice'] = loss.sum() / num_boxes
+        else:
+            losses = {}
+            losses['loss_feat'] = src_masks_feat.sum() * 0.0
+            # eps = 1e-5
+            # src_masks = mask_D(src_masks_feat.flatten(1), src_roi_feat).flatten(1)
+            # target_masks = target_masks.flatten(1)
+            # intersection = (src_masks * target_masks).sum(dim=1)
+            # union = (src_masks ** 2.0).sum(dim=1) + (target_masks ** 2.0).sum(dim=1) + eps
+            # loss = 1. - (2 * intersection / union)
+            # losses['loss_dice'] = loss.sum() / num_boxes
+            losses['loss_dice'] = src_masks_feat.sum() * 0.0
 
         return losses
 
@@ -111,20 +142,18 @@ class SetCriterion(nn.Module):
         tgt_idx = torch.cat([tgt for (_, tgt) in indices])
         return batch_idx, tgt_idx
 
-    def get_loss(self, loss, outputs, targets, indices, num_boxes, mask_encoding, **kwargs):
+    def get_loss(self, loss, outputs, targets, indices, num_boxes, **kwargs):
         loss_map = {
             'labels': self.loss_labels,
             'boxes': self.loss_boxes,
             'masks': self.loss_masks
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
-        return loss_map[loss](outputs, targets, indices, num_boxes, mask_encoding, **kwargs)
+        return loss_map[loss](outputs, targets, indices, num_boxes, **kwargs)
 
-    def forward(self, outputs, targets, mask_encoding):
-        outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs'}
-
+    def forward(self, outputs, targets, mask_E, mask_D, stage):
         # Retrieve the matching between the outputs of the last layer and the targets
-        indices = self.matcher(outputs_without_aux, targets, mask_encoding)
+        indices = self.matcher(outputs, targets, mask_E)
 
         # Compute the average number of target boxes accross all nodes, for normalization purposes
         num_boxes = sum(len(t["labels"]) for t in targets)
@@ -136,20 +165,29 @@ class SetCriterion(nn.Module):
         # Compute all the requested losses
         losses = {}
         for loss in self.losses:
-            losses.update(self.get_loss(loss, outputs, targets, indices, num_boxes, mask_encoding))
+            if loss == 'masks':
+                kwargs = {'mask_E':mask_E, 'mask_D':mask_D}
+                l_dict = self.get_loss(loss, outputs, targets, indices, num_boxes, **kwargs)
+                l_dict = {k + f'_{stage}': v for k, v in l_dict.items()}
+                losses.update(l_dict)
+            else:
+                kwargs = {}
+                l_dict = self.get_loss(loss, outputs, targets, indices, num_boxes, **kwargs)
+                l_dict = {k + f'_{stage}': v for k, v in l_dict.items()}
+                losses.update(l_dict)
 
         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
-        if 'aux_outputs' in outputs:
-            for i, aux_outputs in enumerate(outputs['aux_outputs']):
-                indices = self.matcher(aux_outputs, targets, mask_encoding)
-                for loss in self.losses:
-                    # if loss == 'masks':
-                    #     # Intermediate masks losses are too costly to compute, we ignore them.
-                    #     continue
-                    kwargs = {}
-                    l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_boxes, mask_encoding, **kwargs)
-                    l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
-                    losses.update(l_dict)
+        # if 'aux_outputs' in outputs:
+        #     for i, aux_outputs in enumerate(outputs['aux_outputs']):
+        #         indices = self.matcher(aux_outputs, targets, mask_E)
+        #         for loss in self.losses:
+        #             # if loss == 'masks':
+        #             #     # Intermediate masks losses are too costly to compute, we ignore them.
+        #             #     continue
+        #             kwargs = {}
+        #             l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_boxes, mask_E, mask_D, **kwargs)
+        #             l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
+        #             losses.update(l_dict)
 
         return losses
 
@@ -164,10 +202,11 @@ class HungarianMatcher(nn.Module):
         self.cost_mask = cost_mask
         self.focal_loss_alpha = cfg.MODEL.ISTR.ALPHA
         self.focal_loss_gamma = cfg.MODEL.ISTR.GAMMA
+        self.mask_size = cfg.MODEL.ISTR.MASK_SIZE
         assert cost_class != 0 or cost_bbox != 0 or cost_giou != 0, "all costs cant be 0"
 
     @torch.no_grad()
-    def forward(self, outputs, targets, mask_encoding):
+    def forward(self, outputs, targets, mask_E):
         bs, num_queries = outputs["pred_logits"].shape[:2]
 
         out_prob = outputs["pred_logits"].flatten(0, 1).sigmoid()  # [batch_size * num_queries, num_classes]
@@ -176,7 +215,6 @@ class HungarianMatcher(nn.Module):
         # Also concat the target labels and boxes
         tgt_ids = torch.cat([v["labels"] for v in targets])
         tgt_bbox = torch.cat([v["boxes_xyxy"] for v in targets])
-
         
         alpha = self.focal_loss_alpha
         gamma = self.focal_loss_gamma
@@ -197,21 +235,26 @@ class HungarianMatcher(nn.Module):
         # cost_giou = -generalized_box_iou(box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox))
         cost_giou = -generalized_box_iou(out_bbox, tgt_bbox)
 
-        # mask loss
-        tgt_mask = torch.cat([v["gt_masks"] for v in targets]).flatten(1)
-        tgt_mask_feat = mask_encoding.encoder(tgt_mask)
-        out_mask_feat = outputs["pred_masks"].flatten(0, 1).flatten(1)
+        tgt_mask = torch.cat([v["gt_masks"].crop_and_resize(v["boxes_xyxy"], self.mask_size).float() for v in targets]).unsqueeze(1)#.flatten(1)
 
-        tgt_mask_feat = nn.functional.normalize(tgt_mask_feat, p=2)
-        out_mask_feat = nn.functional.normalize(out_mask_feat, p=2)
-        
-        # cost_mask = -torch.mm(out_mask, tgt_mask.T)
-        cost_mask = -(torch.mm(out_mask_feat, tgt_mask_feat.T) + 1.0) / 2.0
+        if tgt_mask.size(0) != 0:
+            tgt_mask_feat = mask_E(tgt_mask)
+            out_mask_feat = outputs["pred_masks"].flatten(0, 1).flatten(1)
 
-        # Final cost matrix
-        C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou + self.cost_mask * cost_mask
-        C = C.view(bs, num_queries, -1).cpu()
+            tgt_mask_feat = nn.functional.normalize(tgt_mask_feat, p=2)
+            out_mask_feat = nn.functional.normalize(out_mask_feat, p=2)
+            
+            # cost_mask = -torch.mm(out_mask, tgt_mask.T)
+            cost_mask = -(torch.mm(out_mask_feat, tgt_mask_feat.T) + 1.0) / 2.0
 
-        sizes = [len(v["boxes"]) for v in targets]
+            # Final cost matrix
+            C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou + self.cost_mask * cost_mask
+            C = C.view(bs, num_queries, -1).cpu()
+        else:
+            # Final cost matrix
+            C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
+            C = C.view(bs, num_queries, -1).cpu()
+
+        sizes = [len(v["boxes_xyxy"]) for v in targets]
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
         return [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]

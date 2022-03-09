@@ -1,52 +1,36 @@
-import logging
-import math
-from typing import List
-
-import numpy as np
 import torch
-import torch.distributed as dist
-import torch.nn.functional as F
+import numpy as np
 from torch import nn
 
-from detectron2.layers import ShapeSpec
 from detectron2.modeling import META_ARCH_REGISTRY, build_backbone, detector_postprocess
-from detectron2.modeling.roi_heads import build_roi_heads
+
 
 from detectron2.structures import Boxes, ImageList, Instances
-from detectron2.utils.logger import log_first_n
-from fvcore.nn import giou_loss, smooth_l1_loss
+
 
 from .loss import SetCriterion, HungarianMatcher
 from .head import DynamicHead
 from .util.box_ops import box_cxcywh_to_xyxy, box_xyxy_to_cxcywh
-from .util.misc import (NestedTensor, nested_tensor_from_tensor_list,
-                       accuracy, get_world_size, interpolate,
-                       is_dist_avail_and_initialized)
+from .util.misc import (nested_tensor_from_tensor_list)
 
-from detectron2.layers import Conv2d, get_norm
-from .MaskEncoding import PCAMaskEncoding
+from .maskencoding import *
 
 __all__ = ["ISTR"]
-
 
 class ImgFeatExtractor(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        # self.img_feat_layer = nn.AdaptiveAvgPool2d(1)
         self.cfg = cfg
 
     def forward(self, features):
         for i, f in enumerate(features):
             if i == 0:
-                x = torch.mean(torch.mean(f, -1), -1) #self.img_feat_layer(f)
+                x = torch.mean(torch.mean(f, -1), -1)
             else:
-                x_p = torch.mean(torch.mean(f, -1), -1) #self.img_feat_layer(f)
+                x_p = torch.mean(torch.mean(f, -1), -1)
                 x = x + x_p
 
         img_feats = x.squeeze(-1).squeeze(-1).unsqueeze(1).repeat(1, self.cfg.MODEL.ISTR.NUM_PROPOSALS, 1,)
-
-        del x_p
-        del x
         
         return img_feats
 
@@ -67,6 +51,11 @@ class ISTR(nn.Module):
         self.hidden_dim = cfg.MODEL.ISTR.HIDDEN_DIM
         self.num_heads = cfg.MODEL.ISTR.NUM_HEADS
 
+        self.mask_size = cfg.MODEL.ISTR.MASK_SIZE
+        self.mask_feat_dim = cfg.MODEL.ISTR.MASK_FEAT_DIM
+
+        self.mask_encoding_method = cfg.MODEL.ISTR.MASK_ENCODING_METHOD
+
         # Build Backbone.
         self.backbone = build_backbone(cfg)
         self.size_divisibility = self.backbone.size_divisibility
@@ -77,20 +66,37 @@ class ISTR(nn.Module):
         nn.init.constant_(self.init_proposal_boxes.weight[:, :2], 0.5)
         nn.init.constant_(self.init_proposal_boxes.weight[:, 2:], 1.0)
 
-        # --------
         self.IFE = ImgFeatExtractor(cfg)
-        self.mask_encoding = PCAMaskEncoding(cfg)
-        # encoding parameters.
-        components_path = cfg.MODEL.ISTR.PATH_COMPONENTS
-        # update parameters.
-        parameters = np.load(components_path)
-        components = nn.Parameter(torch.from_numpy(parameters['components_c'][0]).float().to(self.device),requires_grad=False)
-        explained_variances = nn.Parameter(torch.from_numpy(parameters['explained_variance_c'][0]).float().to(self.device), requires_grad=False)
-        means = nn.Parameter(torch.from_numpy(parameters['mean_c'][0]).float().to(self.device),requires_grad=False)
-        self.mask_encoding.components = components
-        self.mask_encoding.explained_variances = explained_variances
-        self.mask_encoding.means = means
-        
+
+        if self.mask_encoding_method == 'AE':
+            self.mask_E = Encoder(self.mask_size, self.mask_feat_dim)
+            self.mask_D = Decoder(self.mask_size, self.mask_feat_dim)
+
+            checkpoint_path = cfg.MODEL.ISTR.PATH_COMPONENTS
+            checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
+            self.mask_E.load_state_dict(checkpoint['E'])
+            self.mask_D.load_state_dict(checkpoint['D'])
+
+            frozen(self.mask_E)
+            # frozen(self.mask_D)
+        elif self.mask_encoding_method == 'PCA':
+            self.mask_encoding = PCAMaskEncoding(cfg)
+            components_path = cfg.MODEL.ISTR.PATH_COMPONENTS
+            # update parameters.
+            parameters = np.load(components_path)
+            components = nn.Parameter(torch.from_numpy(parameters['components_c'][0]).float().to(self.device),requires_grad=False)
+            explained_variances = nn.Parameter(torch.from_numpy(parameters['explained_variance_c'][0]).float().to(self.device), requires_grad=False)
+            means = nn.Parameter(torch.from_numpy(parameters['mean_c'][0]).float().to(self.device),requires_grad=False)
+            self.mask_encoding.components = components
+            self.mask_encoding.explained_variances = explained_variances
+            self.mask_encoding.means = means
+            self.mask_E = self.mask_encoding.encoder
+            self.mask_D = self.mask_encoding.decoder
+        elif self.mask_encoding_method == 'DCT':
+            self.mask_encoding = DctMaskEncoding(vec_dim=self.mask_feat_dim, mask_size=self.mask_size)
+            self.mask_E = self.mask_encoding.encode
+            self.mask_D = self.mask_encoding.decode
+
         # Build Dynamic Head.
         self.head = DynamicHead(cfg=cfg, roi_input_shape=self.backbone.output_shape())
 
@@ -99,6 +105,8 @@ class ISTR(nn.Module):
         giou_weight = cfg.MODEL.ISTR.GIOU_WEIGHT
         l1_weight = cfg.MODEL.ISTR.L1_WEIGHT
         no_object_weight = cfg.MODEL.ISTR.NO_OBJECT_WEIGHT
+
+        feat_weight = cfg.MODEL.ISTR.FEAT_WEIGHT
         mask_weight = cfg.MODEL.ISTR.MASK_WEIGHT
 
         self.deep_supervision = cfg.MODEL.ISTR.DEEP_SUPERVISION
@@ -108,11 +116,11 @@ class ISTR(nn.Module):
                                    cost_class=class_weight, 
                                    cost_bbox=l1_weight, 
                                    cost_giou=giou_weight,
-                                   cost_mask=mask_weight)
-        weight_dict = {"loss_ce": class_weight, "loss_bbox": l1_weight, "loss_giou": giou_weight, "loss_feat": mask_weight, "loss_dice": mask_weight}
+                                   cost_mask=feat_weight)
+        weight_dict = {"loss_ce": class_weight, "loss_bbox": l1_weight, "loss_giou": giou_weight, "loss_feat": feat_weight, "loss_dice": mask_weight}
         if self.deep_supervision:
             aux_weight_dict = {}
-            for i in range(self.num_heads - 1):
+            for i in range(self.num_heads):
                 aux_weight_dict.update({k + f"_{i}": v for k, v in weight_dict.items()})
             weight_dict.update(aux_weight_dict)
 
@@ -168,42 +176,38 @@ class ISTR(nn.Module):
         pos_embeddings = self.pos_embeddings.weight[None].repeat(bs, 1, 1)
         proposal_feats = img_feats + pos_embeddings
         
-        del img_feats
-
         if self.training:
+            del images
             gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
             targets = self.prepare_targets(gt_instances)
+            del gt_instances
 
-            outputs_class, outputs_coord, outputs_mask = self.head(features, proposal_boxes, proposal_feats, targets)
-            output = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1], 'pred_masks': outputs_mask[-1]}
+            loss_dict = self.head(features, proposal_boxes, proposal_feats, targets, self.criterion, self.mask_E, self.mask_D)
 
-            if self.deep_supervision:
-                output['aux_outputs'] = [{'pred_logits': a, 'pred_boxes': b, 'pred_masks': c}
-                                         for a, b, c in zip(outputs_class[:-1], outputs_coord[:-1], outputs_mask[:-1])]
-
-            loss_dict = self.criterion(output, targets, self.mask_encoding)
             weight_dict = self.criterion.weight_dict
             for k in loss_dict.keys():
                 if k in weight_dict:
                     loss_dict[k] *= weight_dict[k]
-            
+
             return loss_dict
 
         else:
-            outputs_class, outputs_coord, outputs_mask = self.head(features, proposal_boxes, proposal_feats)
-            output = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1], 'pred_masks': outputs_mask[-1]}
+            outputs_class, outputs_coord, outputs_mask, outputs_roi_feat = self.head(features, proposal_boxes, proposal_feats)
+
+            output = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1], 'pred_masks': outputs_mask[-1], 'pred_roi_feats': outputs_roi_feat[-1]}
 
             box_cls = output["pred_logits"]
             box_pred = output["pred_boxes"]
-            mask_pred = output["pred_masks"].unsqueeze(dim=2)
+            mask_pred = output["pred_masks"]
+            roi_feat = output["pred_roi_feats"]
 
-            results = self.inference(box_cls, box_pred, mask_pred, images.image_sizes)
+            results = self.inference(box_cls, box_pred, mask_pred, images.image_sizes, roi_feat)
 
             processed_results = []
             for results_per_image, input_per_image, image_size in zip(results, batched_inputs, images.image_sizes):
                 height = input_per_image.get("height", image_size[0])
                 width = input_per_image.get("width", image_size[1])
-                r = detector_postprocess(results_per_image, height, width)
+                r = detector_postprocess(results_per_image, height, width, 0.45)
                 processed_results.append({"instances": r})
             
             return processed_results
@@ -219,7 +223,7 @@ class ISTR(nn.Module):
             gt_boxes = targets_per_image.gt_boxes.tensor / image_size_xyxy
             gt_boxes = box_xyxy_to_cxcywh(gt_boxes)
             target["labels"] = gt_classes.to(self.device)
-            target["boxes"] = gt_boxes.to(self.device)
+            # target["boxes"] = gt_boxes.to(self.device)
             target["boxes_xyxy"] = targets_per_image.gt_boxes.tensor.to(self.device)
             target["image_size_xyxy"] = image_size_xyxy.to(self.device)
             image_size_xyxy_tgt = image_size_xyxy.unsqueeze(0).repeat(len(gt_boxes), 1)
@@ -227,15 +231,15 @@ class ISTR(nn.Module):
             target["area"] = targets_per_image.gt_boxes.area().to(self.device)
 
             target["gt_masks"] = targets_per_image.gt_masks.to(self.device)
-            masks = target['gt_masks'].crop_and_resize(targets_per_image.gt_boxes, 28)
-            target["gt_masks"] = masks.float()
+            # masks = target['gt_masks'].crop_and_resize(targets_per_image.gt_boxes, self.mask_size)
+            # target["gt_masks"] = masks.float()
 
             new_targets.append(target)
 
         return new_targets
 
     @torch.no_grad()
-    def inference(self, box_cls, box_pred, mask_pred, image_sizes):
+    def inference(self, box_cls, box_pred, mask_pred, image_sizes, roi_feats):
         """
         Arguments:
             box_cls (Tensor): tensor of shape (batch_size, num_proposals, K).
@@ -251,27 +255,31 @@ class ISTR(nn.Module):
         assert len(box_cls) == len(image_sizes)
         results = []
 
-        #
         scores = torch.sigmoid(box_cls)
-        labels = torch.arange(self.num_classes, device=self.device).\
-                 unsqueeze(0).repeat(self.num_proposals, 1).flatten(0, 1)
 
-        for i, (scores_per_image, box_pred_per_image, mask_pred_per_image, image_size) in enumerate(zip(
-                scores, box_pred, mask_pred, image_sizes
+        for i, (scores_per_image, box_pred_per_image, mask_pred_per_image, image_size, roi_feat) in enumerate(zip(
+                scores, box_pred, mask_pred, image_sizes, roi_feats
         )):
             result = Instances(image_size)
             scores_per_image, topk_indices = scores_per_image.flatten(0, 1).topk(100, sorted=False)
             # scores_per_image, topk_indices = scores_per_image.flatten(0, 1).topk(self.num_proposals, sorted=False)
-            labels_per_image = labels[topk_indices]
-            box_pred_per_image = box_pred_per_image.view(-1, 1, 4).repeat(1, self.num_classes, 1).view(-1, 4)
-            box_pred_per_image = box_pred_per_image[topk_indices]
 
-            mask_pred_per_image = mask_pred_per_image.view(-1, self.cfg.MODEL.ISTR.MASK_DIM)
-            mask_pred_per_image = self.mask_encoding.decoder(mask_pred_per_image, is_train=False)
-            mask_pred_per_image = mask_pred_per_image.view(-1, 1, 28, 28)
-            n, c, w, h = mask_pred_per_image.size()
-            mask_pred_per_image = torch.repeat_interleave(mask_pred_per_image,self.num_classes,1).view(-1, c, w, h)
-            mask_pred_per_image = mask_pred_per_image[topk_indices]
+            # indices = (scores_per_image > 0.02).nonzero()
+            # if indices.size(0) != 0:
+            #     topk_indices = topk_indices.index_select(0, indices.squeeze(-1))
+            #     scores_per_image = scores_per_image.index_select(0, indices.squeeze(-1))
+            # else:
+            #     print('------ no prediction ------')
+
+            labels_per_image = topk_indices % self.num_classes
+            box_pred_per_image = box_pred_per_image[topk_indices // self.num_classes]
+
+            mask_pred_per_image = mask_pred_per_image.view(-1, self.mask_feat_dim)
+            mask_pred_per_image = mask_pred_per_image[topk_indices // self.num_classes]
+            roi_feat = roi_feat[topk_indices // self.num_classes]
+
+            mask_pred_per_image = self.mask_D(mask_pred_per_image, roi_feat)
+            mask_pred_per_image = mask_pred_per_image.view(-1, 1, self.mask_size, self.mask_size)
 
             result.pred_boxes = Boxes(box_pred_per_image)
             result.scores = scores_per_image

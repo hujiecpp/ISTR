@@ -1,0 +1,19 @@
+_BASE_: "Base-ISTR.yaml"
+MODEL:
+  WEIGHTS: "detectron2://ImageNetPretrained/torchvision/R-50.pkl"
+  RESNETS:
+    DEPTH: 50
+    STRIDE_IN_1X1: False
+  ISTR:
+    NUM_PROPOSALS: 300
+    NUM_CLASSES: 80
+    MASK_ENCODING_METHOD: "DCT"
+    PATH_COMPONENTS: ""
+DATASETS:
+  TRAIN: ("coco_2017_train",)
+  TEST:  ("coco_2017_val","coco_2017_test-dev")
+SOLVER:
+  STEPS: (210000, 250000)
+  MAX_ITER: 270000
+INPUT:
+  FORMAT: "RGB"
