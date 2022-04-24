@@ -11,7 +11,7 @@ This is the project page for the paper:
 - (2021.05.03) The project page for ISTR is avaliable.
 
 ## Models
-Method   | backbone | speed | box AP | mask AP | link
+Method   | backbone | fps | box AP | mask AP | link
 ---      |   :---:  |  :---:|:---:   |:---:    |:---:
 ISTR-PCA | R50-FPN  | 13.0  | 46.7   | 39.8    | todo
 ISTR-DCT | R50-FPN  | 12.5  | 46.9   | 40.2    | todo
@@ -29,7 +29,7 @@ ISTR-SMT@1088 | Swin-L | 2.9 | 56.4 | 49.7 | todo
 - We use the models pre-trained on ImageNet using torchvision. The ImageNet pre-trained [ResNet-101](https://drive.google.com/drive/u/1/folders/19UaSgR4OwqA-BhCs_wG7i6E-OXC5NR__) backbone is obtained from [SparseR-CNN](https://github.com/PeizeSun/SparseR-CNN/blob/main/tools/convert-torchvision-to-d2.py).
 
 ## Installation
-The codes are built on top of [Detectron2](https://github.com/facebookresearch/detectron2), [SparseR-CNN](https://github.com/PeizeSun/SparseR-CNN), [], and [AdelaiDet](https://github.com/aim-uofa/AdelaiDet).
+The codes are built on top of [Detectron2](https://github.com/facebookresearch/detectron2), [SparseR-CNN](https://github.com/PeizeSun/SparseR-CNN), and [AdelaiDet](https://github.com/aim-uofa/AdelaiDet).
 
 #### Requirements
 - Python=3.8
