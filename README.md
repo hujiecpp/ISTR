@@ -12,7 +12,7 @@ This is the project page for the paper:
 
 Method   | backbone | fps | box AP | mask AP | link
 ---      |   :---:  |  :---:|:---:   |:---:    |:---:
-ISTR-PCA | R50-FPN  | 13.0  | 46.7   | 39.8    | [7p58](https://pan.baidu.com/s/1WZsA1OBH9NPtig8kaUmpjw?pwd=7p58) [goole drive](https://drive.google.com/drive/folders/1TAFFSu2MIEmaUIGrH5lCulp12Th0xvSK?usp=sharing)
+ISTR-PCA | R50-FPN  | 13.0  | 46.7   | 39.8    | [7p58](https://pan.baidu.com/s/1WZsA1OBH9NPtig8kaUmpjw?pwd=7p58) | [goole drive](https://drive.google.com/drive/folders/1TAFFSu2MIEmaUIGrH5lCulp12Th0xvSK?usp=sharing)
 ISTR-DCT | R50-FPN  | 12.5  | 46.9   | 40.2    | [ibi3](https://pan.baidu.com/s/1gsVq53bP1ZyPDoxIlEkamg?pwd=ibi3)
 ISTR-SMT | R50-FPN  | 10.4  | 47.4   | 41.7    | [73bs](https://pan.baidu.com/s/1aGAGvqs5jcly8Ywh_KP6SA?pwd=73bs)
 ISTR-PCA | R101-FPN | 10.7  | 48.0   | 41.1    | [5rcj](https://pan.baidu.com/s/11Mi_kGVUIDBz1U6jgW0GnQ?pwd=5rcj)
