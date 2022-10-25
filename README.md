@@ -12,13 +12,13 @@ This is the project page for the paper:
 
 Method   | backbone | fps | box AP | mask AP | link
 ---      |   :---:  |  :---:|:---:   |:---:    |:---:
-ISTR-PCA | R50-FPN  | 13.0  | 46.7   | 39.8    | [7p58](https://pan.baidu.com/s/1WZsA1OBH9NPtig8kaUmpjw?pwd=7p58) ([goole drive](https://drive.google.com/drive/folders/1TAFFSu2MIEmaUIGrH5lCulp12Th0xvSK?usp=sharing))
+ISTR-PCA | R50-FPN  | 13.0  | 46.7   | 39.8    | [7p58](https://pan.baidu.com/s/1WZsA1OBH9NPtig8kaUmpjw?pwd=7p58) ([google drive](https://drive.google.com/drive/folders/1TAFFSu2MIEmaUIGrH5lCulp12Th0xvSK?usp=sharing))
 ISTR-DCT | R50-FPN  | 12.5  | 46.9   | 40.2    | [ibi3](https://pan.baidu.com/s/1gsVq53bP1ZyPDoxIlEkamg?pwd=ibi3)
-ISTR-SMT | R50-FPN  | 10.4  | 47.4   | 41.7    | [73bs](https://pan.baidu.com/s/1aGAGvqs5jcly8Ywh_KP6SA?pwd=73bs)
+ISTR-SMT | R50-FPN  | 10.4  | 47.4   | 41.7    | [73bs](https://pan.baidu.com/s/1aGAGvqs5jcly8Ywh_KP6SA?pwd=73bs) ([google drive](https://drive.google.com/drive/folders/1TAFFSu2MIEmaUIGrH5lCulp12Th0xvSK?usp=sharing))
 ISTR-PCA | R101-FPN | 10.7  | 48.0   | 41.1    | [5rcj](https://pan.baidu.com/s/11Mi_kGVUIDBz1U6jgW0GnQ?pwd=5rcj)
-ISTR-DCT | R101-FPN | 10.3  | 48.3   | 41.6    | [0mdl](https://pan.baidu.com/s/1SCoT6Pc92GdHWIsaW_Elug?pwd=0mdl)
-ISTR-SMT | R101-FPN | 8.9   | 48.8   | 42.9    | [qbr8](https://pan.baidu.com/s/1jXowvA5xR_U191p-CAkWOA?pwd=qbr8)
-ISTR-SMT | Swin-L   | 3.5   | 55.8   | 49.2    | [nuj8](https://pan.baidu.com/s/1pcAM6jDKspqve3X_I2KRJA?pwd=nuj8)
+ISTR-DCT | R101-FPN | 10.3  | 48.3   | 41.6    | [0mdl](https://pan.baidu.com/s/1SCoT6Pc92GdHWIsaW_Elug?pwd=0mdl) ([google drive](https://drive.google.com/drive/folders/1HfB3G99ftLg009SThwpbu4toyxDtOXtA?usp=sharing))
+ISTR-SMT | R101-FPN | 8.9   | 48.8   | 42.9    | [qbr8](https://pan.baidu.com/s/1jXowvA5xR_U191p-CAkWOA?pwd=qbr8) ([google drive](https://drive.google.com/drive/folders/1P94TotinnovT3z3eqMDik8myPtefFV9I?usp=sharing))
+ISTR-SMT | Swin-L   | 3.5   | 55.8   | 49.2    | [nuj8](https://pan.baidu.com/s/1pcAM6jDKspqve3X_I2KRJA?pwd=nuj8) ([google drive](https://drive.google.com/drive/folders/1bBUa005luB6ABwQrTYUPcZNlB-f7156c?usp=sharing))
 ISTR-SMT@1088 | Swin-L | 2.9 | 56.4 | 49.7 | [9uj8](https://pan.baidu.com/s/1AjH9VyLc01tKWSzw2ee8tQ?pwd=9uj8)
 
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/istr-end-to-end-instance-segmentation-with/instance-segmentation-on-coco)](https://paperswithcode.com/sota/instance-segmentation-on-coco?p=istr-end-to-end-instance-segmentation-with)
