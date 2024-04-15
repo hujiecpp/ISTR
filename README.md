@@ -81,4 +81,11 @@ If our paper helps your research, please cite it in your publications:
   journal={arXiv preprint arXiv:2105.00637},
   year={2021}
 }
+@article{hu2024istr,
+  author={Hu, Jie and Lu, Yao and Zhang, Shengchuan and Cao, Liujuan},
+  title={ISTR: Mask-Embedding-Based Instance Segmentation Transformer},
+  journal={IEEE Transactions on Image Processing},  
+  year={2024},
+  doi={10.1109/TIP.2024.3385980}
+}
 ```
