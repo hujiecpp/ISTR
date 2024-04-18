@@ -86,6 +86,8 @@ If our paper helps your research, please cite it in your publications:
   title={ISTR: Mask-Embedding-Based Instance Segmentation Transformer},
   journal={IEEE Transactions on Image Processing},  
   year={2024},
+  volume={33},
+  pages={2895-2907},
   doi={10.1109/TIP.2024.3385980}
 }
 ```
